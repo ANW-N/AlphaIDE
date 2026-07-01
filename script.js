@@ -1,24 +1,21 @@
 let editor;
 let currentActivePanel = 'explorer';
-let openFilesMemory = {}; 
-let activeFileHandle = null; // null bo'lsa default holatda turadi
+let openFilesMemory = {}; // { "index.html": { handle: ..., textData: "..." } }
+let activeFileHandleName = null; // Aktiv faylning nomi (String)
+let currentDirHandle = null; // Ochilgan bosh papka xotirasi
 let isPreviewOpen = false;
 
-// Dastlabki yuklanadigan kod (bo'sh qora ekran bo'lmasligi uchun)
+// Dastlabki yuklanadigan kod
 const initialCode = `<!DOCTYPE html>
 <html lang="uz">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AuraAI Test</title>
-    <style>
-        body { background-color: #111; color: #fff; font-family: sans-serif; text-align: center; padding-top: 20%; }
-        h1 { color: #22d3ee; }
-    </style>
 </head>
 <body>
-    <h1>AuraAI Studio Tayyor!</h1>
-    <p>O'zgarishlarni real vaqtda ko'ring.</p>
+    <h1>AuraAI Studio Tayyor! 🔥</h1>
+    <p>Chap tomondan papka oching yoki yangi fayl yaratib sinab ko'ring.</p>
 </body>
 </html>`;
 
@@ -32,19 +29,10 @@ document.addEventListener('fullscreenchange', () => {
 });
 
 function toggleTheme() {
-
-    const isDark =
-        document.body.getAttribute("data-theme") === "dark";
-
-    document.body.setAttribute(
-        "data-theme",
-        isDark ? "light" : "dark"
-    );
-
+    const isDark = document.body.getAttribute("data-theme") === "dark";
+    document.body.setAttribute("data-theme", isDark ? "light" : "dark");
     if (editor) {
-        monaco.editor.setTheme(
-            isDark ? "vs" : "auraTheme"
-        );
+        monaco.editor.setTheme(isDark ? "vs" : "auraTheme");
     }
 }
 
@@ -82,33 +70,85 @@ function toggleActivityPanel(panelName) {
         const titles = { 'explorer': 'Loyiha Fayllari', 'plugins': 'AuraAI Backend API', 'settings': 'IDE Sozlamalari' };
         title.innerText = titles[panelName];
     }
-    // Ekranni to'g'rilash
     setTimeout(() => { if (window.editor) window.editor.layout(); }, 350);
 }
 
-// --- FILE SYSTEM API (To'liq ishlashi uchun) ---
+// --- 🔥 PREMIUM TABS TIZIMI (Sizda yo'q edi, qo'shildi) ---
+function renderTabs() {
+    const container = document.getElementById('tabs-container');
+    container.innerHTML = '';
+    
+    const fileNames = Object.keys(openFilesMemory);
+    if (fileNames.length === 0) {
+        container.innerHTML = `<div class="text-[11px] opacity-40 px-3 font-mono italic">Fayl ochilmagan</div>`;
+        return;
+    }
+
+    fileNames.forEach(name => {
+        const isActive = (name === activeFileHandleName);
+        const tab = document.createElement('div');
+        
+        // Premium klasslar dinamik almashadi
+        tab.className = `px-4 h-full text-[12px] font-medium flex items-center gap-2 cursor-pointer transition-all duration-200 border-r border-[var(--border-color)] ${
+            isActive ? 'tab-active bg-[var(--tab-active-bg)]' : 'tab-inactive text-[var(--text-muted)] hover:bg-[var(--hover-bg)]'
+        }`;
+        
+        let icon = "insert_drive_file";
+        if(name.endsWith('.html')) icon = "html";
+        if(name.endsWith('.css')) icon = "css";
+        if(name.endsWith('.js')) icon = "javascript";
+
+        tab.innerHTML = `
+            <span class="material-icons-outlined text-[14px]">${icon}</span>
+            <span>${name}</span>
+            <span onclick="closeTab(event, '${name}')" class="material-icons-outlined text-[12px] hover:text-red-500 ml-1 p-0.5 rounded transition-colors">close</span>
+        `;
+        
+        tab.onclick = () => switchToFile(name);
+        container.appendChild(tab);
+    });
+}
+
+function switchToFile(name) {
+    if (!openFilesMemory[name]) return;
+    activeFileHandleName = name;
+    
+    editor.setValue(openFilesMemory[name].textData);
+    const lang = getLangFromExt(name);
+    monaco.editor.setModelLanguage(editor.getModel(), lang);
+    document.getElementById('editor-language').innerText = lang;
+    
+    renderTabs();
+    updateLivePreview();
+}
+
+function closeTab(event, name) {
+    event.stopPropagation(); // Tab almashib ketmasligi uchun
+    delete openFilesMemory[name];
+    
+    if (activeFileHandleName === name) {
+        const remaining = Object.keys(openFilesMemory);
+        if (remaining.length > 0) {
+            switchToFile(remaining[remaining.length - 1]);
+        } else {
+            activeFileHandleName = null;
+            editor.setValue("");
+            document.getElementById('editor-language').innerText = "plaintext";
+        }
+    }
+    renderTabs();
+    updateLivePreview();
+}
+
+// --- FILE SYSTEM API (Ochish, Yaratish, Saqlash) ---
 async function openLocalFile() {
     try {
         const [fileHandle] = await window.showOpenFilePicker();
         const file = await fileHandle.getFile();
         const text = await file.text();
         
-        activeFileHandle = fileHandle; // Obyekt saqlanadi
         openFilesMemory[fileHandle.name] = { handle: fileHandle, textData: text };
-        
-        // Tabni yangilash
-        document.getElementById('tabs-container').innerHTML = `
-            <div class="tab-active px-4 py-2 text-[12px] font-medium flex items-center gap-2 cursor-pointer transition-colors">
-                <span class="material-icons-outlined text-[14px] text-cyan-400">description</span> ${fileHandle.name}
-            </div>
-        `;
-        
-        editor.setValue(text);
-        const lang = detectLanguage(text) || getLangFromExt(fileHandle.name);
-        monaco.editor.setModelLanguage(editor.getModel(), lang);
-        document.getElementById('editor-language').innerText = lang;
-        
-        updateLivePreview();
+        switchToFile(fileHandle.name);
     } catch (e) {
         console.log("Fayl ochish bekor qilindi", e);
     }
@@ -116,54 +156,91 @@ async function openLocalFile() {
 
 async function openLocalFolder() {
     try {
-        const dirHandle = await window.showDirectoryPicker();
-        openFilesMemory = {}; // Xotirani tozalash
-        document.getElementById('sidebar-title').innerText = dirHandle.name;
-        
+        currentDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        document.getElementById('sidebar-title').innerText = currentDirHandle.name;
         const treeContainer = document.getElementById('file-tree');
         treeContainer.innerHTML = '';
         
-        // Papka ichini o'qish (faqat birinchi qavat MVP uchun)
-        for await (const entry of dirHandle.values()) {
-            const el = document.createElement('div');
-            el.className = 'py-1.5 cursor-pointer hover:bg-white/10 px-2 rounded flex items-center gap-2 text-[12px] transition-colors';
+        await listAllFiles(currentDirHandle, treeContainer, "8px");
+    } catch (e) { 
+        console.log("Papka ochish bekor qilindi", e); 
+    }
+}
+
+// Rekursiv qatlamli o'quvchi
+async function listAllFiles(dirHandle, parentElement, paddingLeft) {
+    for await (const entry of dirHandle.values()) {
+        const el = document.createElement('div');
+        el.className = `py-1 cursor-pointer hover:bg-white/5 rounded flex items-center gap-2 text-[12px] transition-colors`;
+        el.style.paddingLeft = paddingLeft;
+        
+        if (entry.kind === 'file') {
+            let fileIcon = "insert_drive_file";
+            if(entry.name.endsWith('.html')) fileIcon = "html";
+            if(entry.name.endsWith('.css')) fileIcon = "css";
+            if(entry.name.endsWith('.js')) fileIcon = "javascript";
             
-            if (entry.kind === 'file') {
-                el.innerHTML = `<span class="material-icons-outlined text-[14px] text-gray-400">insert_drive_file</span> ${entry.name}`;
-                el.onclick = async () => {
-                    const file = await entry.getFile();
-                    const text = await file.text();
-                    activeFileHandle = entry;
-                    openFilesMemory[entry.name] = { handle: entry, textData: text };
-                    
-                    document.getElementById('tabs-container').innerHTML = `
-                        <div class="tab-active px-4 py-2 text-[12px] font-medium flex items-center gap-2 cursor-pointer transition-colors">
-                            <span class="material-icons-outlined text-[14px] text-cyan-400">description</span> ${entry.name}
-                        </div>
-                    `;
-                    editor.setValue(text);
-                    const lang = detectLanguage(text) || getLangFromExt(entry.name);
-                    monaco.editor.setModelLanguage(editor.getModel(), lang);
-                    document.getElementById('editor-language').innerText = lang;
-                    updateLivePreview();
-                };
-            } else {
-                el.innerHTML = `<span class="material-icons-outlined text-[14px] text-amber-500">folder</span> ${entry.name}`;
-            }
-            treeContainer.appendChild(el);
+            el.innerHTML = `<span class="material-icons-outlined text-[14px] text-cyan-500">${fileIcon}</span> <span class="truncate">${entry.name}</span>`;
+            el.onclick = async () => {
+                const file = await entry.getFile();
+                const text = await file.text();
+                
+                openFilesMemory[entry.name] = { handle: entry, textData: text };
+                switchToFile(entry.name);
+            };
+            parentElement.appendChild(el);
+        } else if (entry.kind === 'directory') {
+            el.innerHTML = `<span class="material-icons-outlined text-[14px] text-amber-500">folder</span> <span class="font-medium truncate">${entry.name}</span>`;
+            parentElement.appendChild(el);
+            
+            const subContainer = document.createElement('div');
+            subContainer.className = "hidden border-l border-white/10 ml-3";
+            parentElement.appendChild(subContainer);
+            
+            el.onclick = async (e) => {
+                e.stopPropagation();
+                subContainer.classList.toggle('hidden');
+                const icon = el.querySelector('.material-icons-outlined');
+                icon.innerText = subContainer.classList.contains('hidden') ? "folder" : "folder_open";
+            };
+            
+            await listAllFiles(entry, subContainer, "12px");
         }
-    } catch (e) {
-        console.log("Papka ochish bekor qilindi", e);
+    }
+}
+
+async function createNewFile() {
+    if (!currentDirHandle) {
+        alert("Yangi fayl yaratish uchun avval biron loyiha papkasini oching (Fayl > Papkani ochish).");
+        return;
+    }
+    
+    const fileName = prompt("Yangi fayl nomini kiriting (masalan: style.css, script.js):");
+    if (!fileName || fileName.trim() === "") return;
+
+    try {
+        const newFileHandle = await currentDirHandle.getFileHandle(fileName, { create: true });
+        openFilesMemory[fileName] = { handle: newFileHandle, textData: "" };
+        
+        const treeContainer = document.getElementById('file-tree');
+        treeContainer.innerHTML = '';
+        await listAllFiles(currentDirHandle, treeContainer, "8px");
+        
+        switchToFile(fileName);
+    } catch (err) {
+        console.error("Fayl yaratishda xatolik:", err);
+        alert("Fayl yaratishda xatolik yuz berdi.");
     }
 }
 
 async function saveCurrentFile() {
-    if (!activeFileHandle) {
-        alert("Fayl ochilmagan! Avval Fayl > Faylni ochish orqali biron faylni oching.");
+    if (!activeFileHandleName || !openFilesMemory[activeFileHandleName].handle) {
+        alert("Saqlash uchun local xotiradan fayl ochilgan bo'lishi kerak.");
         return;
     }
     try {
-        const writable = await activeFileHandle.createWritable();
+        const fileObj = openFilesMemory[activeFileHandleName];
+        const writable = await fileObj.handle.createWritable();
         await writable.write(editor.getValue());
         await writable.close();
         
@@ -179,7 +256,7 @@ async function saveCurrentFile() {
     }
 }
 
-// --- LIVE PREVIEW ---
+// --- LIVE PREVIEW CONTROL ---
 function toggleLivePreview() {
     const previewContainer = document.getElementById('preview-container');
     const btn = document.getElementById('btn-live-preview');
@@ -204,18 +281,55 @@ function updateLivePreview() {
     if (!isPreviewOpen) return;
     const frame = document.getElementById('live-preview-frame');
     
-    // Hozirgi kodni olish (MVP uchun hozircha aktiv oynadagini o'qiydi)
-    const currentCode = editor.getValue();
-    const currentLang = editor.getModel().getLanguageId();
-    
-    let doc = "";
-    if (currentLang === 'html') {
-        doc = currentCode;
+    let htmlContent = "";
+    if (activeFileHandleName && activeFileHandleName.endsWith('.html')) {
+        htmlContent = editor.getValue();
+    } else if (openFilesMemory['index.html']) {
+        htmlContent = openFilesMemory['index.html'].textData;
     } else {
-        doc = `<html><body><pre style="color:white;background:#111;padding:20px;">Faqat HTML/CSS ko'rsatiladi.<br>Hozirgi til: ${currentLang}</pre></body></html>`;
+        const remaining = Object.keys(openFilesMemory);
+        const htmlFile = remaining.find(name => name.endsWith('.html'));
+        if (htmlFile) htmlContent = openFilesMemory[htmlFile].textData;
     }
-    
-    frame.srcdoc = doc;
+
+    if (!htmlContent) {
+        frame.srcdoc = `<html><body style="background:#0a0a0a;color:#888;font-family:sans-serif;text-align:center;padding:30px;">
+            <h3>Jonli natija uchun kamida bitta HTML faylini tabda oching!</h3>
+            <p style="font-size:12px;color:#555;">CSS va JS natijasini ko'rish uchun ularni ham tabda ochib qo'ying.</p>
+        </body></html>`;
+        return;
+    }
+
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlContent, 'text/html');
+
+        // CSS Inyeksiya (Faqat tabda ochiq fayllardan tekshiradi)
+        const links = doc.querySelectorAll('link[rel="stylesheet"]');
+        links.forEach(link => {
+            const href = link.getAttribute('href');
+            if (href && openFilesMemory[href]) {
+                const styleTag = doc.createElement('style');
+                styleTag.textContent = openFilesMemory[href].textData;
+                link.parentNode.replaceChild(styleTag, link);
+            }
+        });
+
+        // JS Inyeksiya (Faqat tabda ochiq fayllardan tekshiradi)
+        const scripts = doc.querySelectorAll('script[src]');
+        scripts.forEach(script => {
+            const src = script.getAttribute('src');
+            if (src && openFilesMemory[src]) {
+                const scriptTag = doc.createElement('script');
+                scriptTag.textContent = openFilesMemory[src].textData;
+                script.parentNode.replaceChild(scriptTag, script);
+            }
+        });
+
+        frame.srcdoc = new XMLSerializer().serializeToString(doc);
+    } catch (error) {
+        console.error("Preview Error:", error);
+    }
 }
 
 // --- UTIL FONKSIYALAR ---
@@ -226,15 +340,7 @@ function getLangFromExt(filename) {
     return 'html';
 }
 
-function detectLanguage(code) {
-    if (/<html>|<head>|<body|<div|<span/i.test(code)) return 'html';
-    if (/def |import |print\(/i.test(code)) return 'python';
-    if (/const |let |=>|document\./i.test(code)) return 'javascript';
-    if (/[{}]\s*[\w-]+\s*:/i.test(code) || /@media|margin:/i.test(code)) return 'css';
-    return null;
-}
-
-// --- MONACO EDITOR INITSILIZATSIYASI ---
+// --- MONACO EDITOR INITIALIZATION ---
 async function initEditor() {
     await document.fonts.load('15px "JetBrains Mono"');
     require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.39.0/min/vs' }});
@@ -255,12 +361,10 @@ async function initEditor() {
         });
 
         editor = monaco.editor.create(document.getElementById('monaco-container'), {
-            value: initialCode, // O'lik qora ekran o'rniga HTML template tushadi!
+            value: initialCode,
             language: 'html',
-            theme: document.body.getAttribute("data-theme") === "dark"
-                ? "auraTheme"
-                : "vs",
-            automaticLayout: true, // Konteyner o'zgarsa o'zi moslashadi
+            theme: document.body.getAttribute("data-theme") === "dark" ? "auraTheme" : "vs",
+            automaticLayout: true,
             fontSize: 15,
             fontFamily: "'JetBrains Mono', monospace",
             minimap: { enabled: true, scale: 0.7 },
@@ -269,32 +373,26 @@ async function initEditor() {
             cursorBlinking: 'smooth'
         });
 
-        let autoLangTimeout;
-        let livePreviewTimeout;
-
+        // Harf yozilganda xotirani real vaqtda yangilash (Debounce olib tashlandi - srazi o'zgaradi!)
         editor.onDidChangeModelContent(() => {
             const syncStatus = document.getElementById('sync-status');
             syncStatus.innerHTML = `<span class="material-icons-outlined text-[14px]">edit</span> O'zgartirildi...`;
             syncStatus.className = "flex items-center gap-1.5 text-amber-400";
             
-            // Xotirani yangilash
-            if (activeFileHandle && openFilesMemory[activeFileHandle.name]) {
-                openFilesMemory[activeFileHandle.name].textData = editor.getValue();
+            if (activeFileHandleName && openFilesMemory[activeFileHandleName]) {
+                openFilesMemory[activeFileHandleName].textData = editor.getValue();
             }
-
-            // Live Preview yangilash
-            clearTimeout(livePreviewTimeout);
-            livePreviewTimeout = setTimeout(() => {
-                updateLivePreview();
-            }, 600);
+            updateLivePreview();
         });
 
-        // CTRL+S bosilganda saqlash
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             saveCurrentFile();
         });
         
-        window.editor = editor; // layout() ishlashi uchun globalga chiqarish
+        window.editor = editor;
+        
+        // Dastlabki bo'sh holat tabini render qilish
+        renderTabs();
     });
 }
 
