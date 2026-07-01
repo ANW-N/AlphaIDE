@@ -80,9 +80,14 @@
         <aside id="slidebar_panel" class="h-full flex flex-col relative z-10 bg-[var(--panel-bg)] border-r border-[var(--border-color)] shadow-xl transition-all duration-300 w-[280px]">
             <div class="px-5 py-3 flex items-center justify-between min-h-[48px] border-b border-[var(--border-color)]">
                 <span id="sidebar-title" class="text-[12px] font-semibold tracking-wider uppercase text-[var(--text-muted)]">Explorer</span>
-                <button onclick="toggleActivityPanel(currentActivePanel)" class="hover-effect rounded p-1 opacity-50 hover:opacity-100 transition-all text-[var(--text-main)]">
-                    <span class="material-icons-outlined text-[18px]">menu_open</span>
-                </button>
+                <div class="flex items-center gap-1">
+                    <button onclick="createNewFile()" class="hover-effect rounded p-1 opacity-70 hover:opacity-100 transition-all text-[var(--text-main)]" title="Yangi fayl yaratish">
+                        <span class="material-icons-outlined text-[16px]">note_add</span>
+                    </button>
+                    <button onclick="toggleActivityPanel(currentActivePanel)" class="hover-effect rounded p-1 opacity-50 hover:opacity-100 transition-all text-[var(--text-main)]" title="Yopish">
+                        <span class="material-icons-outlined text-[18px]">menu_open</span>
+                    </button>
+                </div>
             </div>
             
             <div class="flex-1 overflow-y-auto p-2 text-[13px] text-[var(--text-main)]" id="sidebar-content">
